@@ -152,10 +152,10 @@ class SNV3Dataset(Dataset):
     game = self.list_games[index]
     label_reference = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/Labels-caption.json')
     label = json.loads(label_reference.get()['Body'].read().decode('utf-8'))
-    print(len(label['annotations']))
-    print(self.batch_size)
+#     print(len(label['annotations']))
+#     print(self.batch_size)
     captions = random.sample(label['annotations'], self.batch_size)
-    print(len(captions))
+#     print(len(captions))
     pad_len = max([len(x['anonymized']) for x in captions])
 
     emb_ref1 = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/1_baidu_soccer_embeddings.npy')
@@ -223,7 +223,7 @@ class SNV3Dataset(Dataset):
       if self.include_vid:
           clip = video[start:start + self.clip_len,:,:]
       caption_tokens = self.text_processor(annotation['anonymized'])
-      caption_tokens = [config.PAD_TOKEN] * clip_len + caption_tokens
+      caption_tokens = [config.PAD_TOKEN] * self.clip_len + caption_tokens
       caption_tokens += [config.PAD_TOKEN] * (pad_len - len(caption_tokens))
 
       out['embed'].append(emb_clip)

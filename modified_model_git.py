@@ -26,7 +26,7 @@ class GitModel(GitPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.config = config
-
+        # print('pad id: ', config.pad_token_id)
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
         self.embeddings = GitEmbeddings(config)
         #self.image_encoder = GitVisionModel(config.vision_config)
@@ -206,8 +206,10 @@ class GitModel(GitPreTrainedModel):
         if inputs_embeds is not None:
             inputs_embeds = self.visual_projection(inputs_embeds)
         if labels is not None:
-            label_embeds = self.word_embeddings(labels)
-        inputs_embeds = torch.cat(inputs_embeds, label_embeds)
+            label_embeds = self.word_embeddings(labels[:,30:])
+        # print('inputs_embeds: ', inputs_embeds.shape)
+        # print('label_embeds: ', label_embeds.shape)
+        inputs_embeds = torch.cat((inputs_embeds, label_embeds), dim=1)
 
 
         # comment below steps that convert "pixel_values" to "visual_features"
@@ -232,7 +234,7 @@ class GitModel(GitPreTrainedModel):
 
         #     projected_visual_features = self.visual_projection(visual_features)
 
-        print('position_ids: ', position_ids)
+        # print('position_ids: ', position_ids)
         embedding_output = self.embeddings(
             input_ids=input_ids,
             position_ids=position_ids,
@@ -257,7 +259,9 @@ class GitModel(GitPreTrainedModel):
 
         # By default, an additive causal mask is created
         # for masking the future (one direction).
-        tgt_mask = self._generate_future_mask(seq_length, embedding_output.dtype, embedding_output.device)
+        tgt_mask = self._generate_future_mask(embedding_output.shape[1], embedding_output.dtype, embedding_output.device)
+        # print('tgt_mask: ', tgt_mask.shape)
+
 
         # Create an attention mask of shape (batch_size, 1, tgt_seq_len, src_seq_len)
         combined_attention_mask = self.create_attention_mask(
@@ -278,8 +282,8 @@ class GitModel(GitPreTrainedModel):
             else:
                 combined_attention_mask[:, :, -input_shape[1] :, -input_shape[1] :] += expanded_attn_mask
 
-        print('PRE-ENCODER HIDDEN STATE: ', hidden_states.shape)
-        print('PRE-ENCODER attention MASK: ', combined_attention_mask.shape)
+        # print('PRE-ENCODER HIDDEN STATE: ', hidden_states.shape)
+        # print('PRE-ENCODER attention MASK: ', combined_attention_mask.shape)
         encoder_outputs = self.encoder(
             hidden_states,
             attention_mask=combined_attention_mask,
@@ -292,9 +296,9 @@ class GitModel(GitPreTrainedModel):
             #pixel_values_present=pixel_values is not None,
             pixel_values_present=visual_embeds is not None,
         )
-        print('ENCODER OUTPUTS: ', encoder_outputs)
+        # print('ENCODER OUTPUTS: ', encoder_outputs)
         sequence_output = encoder_outputs[0]
-        print('SEQUENCE OPTUTS: ', sequence_output.shape)
+        # print('SEQUENCE OPTUTS: ', sequence_output.shape)
 
         if not return_dict:
             return (sequence_output,) + encoder_outputs[1:]
@@ -314,8 +318,8 @@ class GitForCausalLM(GitPreTrainedModel):
 
         self.git = GitModel(config)
         self.output = nn.Linear(config.hidden_size, config.vocab_size)
-        print('GIT OUTPUT LAYER: ')
-        print(self.output)
+        # print('GIT OUTPUT LAYER: ')
+        # print(self.output)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -452,24 +456,31 @@ class GitForCausalLM(GitPreTrainedModel):
             return_dict=return_dict,
             labels = labels
         )
-        print('sequence outputs: ', outputs[0])
+        # print('sequence outputs: ', outputs[0])
 
         sequence_output = outputs[0]
         logits = self.output(sequence_output)
-        print('logits: ', logits.shape)
+        # print('logits: ', logits.shape)
 
         loss = None
-        print('initial labels: ', labels.shape)
+        # print('initial labels: ', labels.shape)
         if labels is not None:
             # we are doing next-token prediction; shift prediction scores and input ids by one
-            num_image_tokens = self.git.encoder.layer[0].attention.self.image_patch_tokens
-            shifted_logits = logits[:, num_image_tokens:-1, :].contiguous()
-            labels = labels[:, 1:].contiguous()
-            print('contiguous labels: ', labels.shape)
+#             num_image_tokens = self.git.encoder.layer[0].attention.self.image_patch_tokens
+#             shifted_logits = logits[:, num_image_tokens:-1, :].contiguous()
+            shifted_logits = logits[:, :-1, :].contiguous()
+            # print('shifted logits: ', shifted_logits)
+            loss_labels = labels.clone()
+            loss_labels[loss_labels == 0] = -100
+            # print('example label: ', labels[0])
+            # print('example label2: ', labels[1])
+
+            loss_labels = loss_labels[:, 1:].contiguous()
+            # print('contiguous labels: ', labels.shape)
             loss_fct = CrossEntropyLoss()
-            print('shifted logits: ', shifted_logits.view(-1, self.config.vocab_size).shape)
-            print('labels: ', labels.view(-1).shape)
-            loss = loss_fct(shifted_logits.view(-1, self.config.vocab_size), labels.view(-1))
+            # print('view logits: ', shifted_logits.view(-1, self.config.vocab_size).shape)
+            # print('labels: ', labels.view(-1).shape)
+            loss = loss_fct(shifted_logits.view(-1, self.config.vocab_size), loss_labels.view(-1))
 
         if not return_dict:
             output = (logits,) + outputs[1:]

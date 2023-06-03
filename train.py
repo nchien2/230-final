@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from transformers import AdamW, get_scheduler
 from transformers import GitConfig, GitVisionConfig
-from model_git import GitForCausalLM
+from modified_model_git import GitForCausalLM
 from dataloader import SNV3Dataset, collate_fn
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
@@ -34,20 +34,20 @@ class plModel(pl.LightningModule):
       return AdamW(self.parameters(), lr = lr)
 
     def forward(self, x):
-        print('in forward')
-        print(x)
+#         print('in forward')
+#         print(x)
         out = self.model(**x)
         return out
 
     def training_step(self, batch, batch_idx):
-        position_ids = torch.tensor(range(0, batch[0]['embed'].shape[1]), dtype=torch.long)
+#         position_ids = torch.tensor(range(0, batch[0]['labels'].shape[1] + 30), dtype=torch.long)
         inputs = {#"visual_embeds": torch.normal(0, 1, size=(25, 3, 768)),
                  "visual_embeds": None,
                  "inputs_embeds": batch[0]['embed'].to(self.device),
                  "labels": batch[0]['caption'].to(self.device),
-                 "position_ids": position_ids.to(self.device)
+                 "position_ids": None#position_ids.to(self.device)
                  }
-        print(batch[0]['embed'].shape)
+#         print(batch[0]['embed'].shape)
 #         inputs = {k:v.to(self.device) for k, v in inputs.items()}
         out = self(inputs)
         y_hat = out['logits']
@@ -59,14 +59,15 @@ if __name__ == "__main__":
     train_ds = SNV3Dataset(split='train',
                            vocab_path='vocab_files/train_vocab.pyi',
                            batch_size=batch_size)
-    # valid_ds = SNV3Dataset(split='valid',
-    #                        vocab_path=None)
+    valid_ds = SNV3Dataset(split='valid',
+                           vocab_path='vocab_files/valid_vocab.pyi',
+                           batch_size=batch_size)
     # test_ds = SNV3Dataset(split='test',
     #                        vocab_path='vocab_files/test_vocab.pyi')
 
     print('Making DataLoader')
     train_dl = DataLoader(train_ds, batch_size=1, collate_fn=collate_fn)
-    # valid_dl = DataLoader(valid_ds, batch_size=1, collate_fn=collate_fn)
+    valid_dl = DataLoader(valid_ds, batch_size=1, collate_fn=collate_fn)
     # test_dl = DataLoader(test_ds, batch_size=1, collate_fn=collate_fn)
 
     # optimizer = AdamW(model.parameters(), lr=lr)
@@ -93,4 +94,4 @@ if __name__ == "__main__":
     model.to(device)
 
     print('Training Model')
-    trainer.fit(model, train_dataloaders=train_dl)
+    trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=valid_dl)
