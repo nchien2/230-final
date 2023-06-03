@@ -107,6 +107,7 @@ class SNV3Dataset(Dataset):
 
     print("Reading the annotation files")
     self.metadata = list()
+    invalid_games = []
     for game in tqdm(self.list_games):
       # self.metadata.append(json.load(open(os.path.join(self.path, game, "Labels-v3.json"))))
       # print(f'getting key: {game}')
@@ -117,8 +118,13 @@ class SNV3Dataset(Dataset):
         self.metadata.append(obj)
       except:
         print(f'Cannot find game: {game}')
+        invalid_games.append(game)
         continue
-
+    
+    for game in invalid_games: 
+        self.list_games.remove(game)
+        
+    print(self.list_games)
     self.data = list()
     for label in tqdm(self.metadata):
       # Retrieve each action in the game

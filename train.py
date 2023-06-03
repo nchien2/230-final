@@ -66,7 +66,7 @@ if __name__ == "__main__":
     #                        vocab_path='vocab_files/test_vocab.pyi')
 
     print('Making DataLoader')
-    train_dl = DataLoader(train_ds, batch_size=1, collate_fn=collate_fn)
+    train_dl = DataLoader(train_ds, batch_size=1, collate_fn=collate_fn, shuffle=True)
     valid_dl = DataLoader(valid_ds, batch_size=1, collate_fn=collate_fn)
     # test_dl = DataLoader(test_ds, batch_size=1, collate_fn=collate_fn)
 
