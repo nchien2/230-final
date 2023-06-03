@@ -13,6 +13,8 @@ import io
 import skvideo.io
 import config
 import random
+import cv2
+
 from collections import Counter
 from torchtext.vocab import vocab
 
@@ -94,8 +96,8 @@ class SNV3Dataset(Dataset):
         aws_access_key_id=config.aws_access_key_id,
         aws_secret_access_key=config.aws_secret_access_key,
     )
-    self.s3 = session.resource('s3')
-    # self.client = boto3.client('s3')
+    self.s3 = self.session.resource('s3')
+    self.client = self.session.client('s3')
     # self.bucket = s3.Bucket(bucket)
     self.bucket = bucket
 
@@ -133,6 +135,9 @@ class SNV3Dataset(Dataset):
                                                  load_path=vocab_path)
     self.vocab_size = len(self.text_processor.vocab)
 
+  def __vocab_size__(self):
+    return self.vocab_size
+
   def __len__(self):
     return len(self.list_games)
 
@@ -144,11 +149,13 @@ class SNV3Dataset(Dataset):
       return out
 
   def __getitem__(self, index):
-    print('IN GET_ITEM')
     game = self.list_games[index]
     label_reference = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/Labels-caption.json')
     label = json.loads(label_reference.get()['Body'].read().decode('utf-8'))
+    print(len(label['annotations']))
+    print(self.batch_size)
     captions = random.sample(label['annotations'], self.batch_size)
+    print(len(captions))
     pad_len = max([len(x['anonymized']) for x in captions])
 
     emb_ref1 = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/1_baidu_soccer_embeddings.npy')
@@ -157,17 +164,53 @@ class SNV3Dataset(Dataset):
     embed_list = [self.ref_to_tensor(emb_ref1), self.ref_to_tensor(emb_ref2)]
     embed = torch.cat(embed_list)
 
+    if self.include_vid:
+      url1 = s3_client.generate_presigned_url('get_object',
+                                             Params= {'Bucket': 'soccernet-230', 'Key': 'videos/' + game + '1_224p.mkv'},
+                                             ExpiresIn=600)
+      url2 = s3_client.generate_presigned_url('get_object',
+                                             Params= {'Bucket': 'soccernet-230', 'Key': 'videos/' + game + '2_224p.mkv'},
+                                             ExpiresIn=600)
+
+      img_list = []
+      cap1 = cv2.VideoCapture(url1)
+      ret = True
+      while(ret):
+        ret, frame = cap.read()
+        img_list.append(frame)
+      cap2 = cv2.VideoCapture(url2)
+      ret = True
+      while(ret):
+        ret, frame = cap.read()
+        img_list.append(frame)
+      video = np.concatenate(img_list)
+      video = torch.tensor(video)
+
+      '''
+      vid_ref1 = self.s3.Object('soccernet-230', 'videos/' + game + '/1_224p.mkv')
+      vid_ref2 = self.s3.Object('soccernet-230', 'videos/' + game + '/2_224p.mkv')
+      with io.BytesIO(vid_ref1.get()["Body"].read()) as v_f:
+        v_f.seek(0)  # rewind the file
+        video = v_f.read()
+
+        idxs = range(0, 10)
+        video_list = [imageio.v3.imread(video, format_hint='.mkv', index=idx, plugin='pyav') for idx in idxs]
+        video = np.stack(video_list)
+        print(video.shape)
+      '''
+
     out = {
         'embed': [],
         'caption': [],
-        'video': []
+        'clip': []
     }
     for annotation in captions:
       time = annotation["gameTime"]
       event = annotation["label"]
       half = int(time[0])
-      if half > 2:
-          continue
+      # if half > 2:
+      #     print('half too large')
+      #     continue
 
       minutes, seconds = time.split(' ')[-1].split(':')
       minutes, seconds = int(minutes), int(seconds)
@@ -176,30 +219,21 @@ class SNV3Dataset(Dataset):
       start = min(frame, embed.shape[0] - self.clip_len)
       emb_clip = embed[start:start + self.clip_len,:]
 
-      video = None
+      clip = None
       if self.include_vid:
-        vid_ref1 = self.s3.Object('soccernet-230', 'videos/' + game + '/1_224p.mkv')
-        vid_ref2 = self.s3.Object('soccernet-230', 'videos/' + game + '/2_224p.mkv')
-        with io.BytesIO(vid_ref.get()["Body"].read()) as v_f:
-          v_f.seek(0)  # rewind the file
-          video = v_f.read()
-
-          idxs = range(0, 10)
-          video_list = [imageio.v3.imread(video, format_hint='.mkv', index=idx, plugin='pyav') for idx in idxs]
-          video = np.stack(video_list)
-          print(video.shape)
-
+          clip = video[start:start + self.clip_len,:,:]
       caption_tokens = self.text_processor(annotation['anonymized'])
-      caption_tokens += [0] * (pad_len - len(caption_tokens))
+      caption_tokens = [config.PAD_TOKEN] * clip_len + caption_tokens
+      caption_tokens += [config.PAD_TOKEN] * (pad_len - len(caption_tokens))
 
       out['embed'].append(emb_clip)
       out['caption'].append(torch.tensor(caption_tokens))
-      out['video'].append(video)
+      out['clip'].append(clip)
 
     out['embed'] = torch.stack(out['embed'])
     out['caption'] = torch.stack(out['caption'])
     if self.include_vid:
-      out['video'] = torch.stack(out['video'])
+      out['clip'] = torch.stack(out['clip'])
 
     return out
 
@@ -224,6 +258,10 @@ class SNV3Dataset(Dataset):
     return string.rstrip(f" {self.text_processor.vocab.lookup_token(config.EOS_TOKEN)}") if remove_EOS else string
 
 
+def collate_fn(data):
+    return data
+
+
 if __name__ == "__main__":
     session = boto3.Session(
         aws_access_key_id=config.aws_access_key_id,
@@ -233,6 +271,11 @@ if __name__ == "__main__":
     test_ds = SNV3Dataset(split='test',
                       bucket='soccernet-230',
                       vocab_path='vocab_files/test_vocab.pyi')
-    for example in test_ds:
-      print(example)
-      break
+
+    test_dl = DataLoader(test_ds, collate_fn=collate_fn, batch_size=1)
+
+    for example in test_dl:
+      print('PRINTING EXAMPLE============')
+      # print(example)
+      print(example[0]['embed'].shape)
+      # print(example[0]['caption'].shape)
