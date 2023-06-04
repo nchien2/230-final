@@ -124,7 +124,7 @@ class SNV3Dataset(Dataset):
     for game in invalid_games: 
         self.list_games.remove(game)
         
-    print(self.list_games)
+#     print(self.list_games)
     self.data = list()
     for label in tqdm(self.metadata):
       # Retrieve each action in the game
