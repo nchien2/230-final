@@ -7,7 +7,8 @@ torch==2.0.1
 torchtext==0.15.2
 torchvision==0.15.2
 tqdm==4.65.0
-transformer==4.29.2
+transformers==4.29.2
 imageio==2.30.0
 imageio-ffmpeg==0.4.8
 pytorch_lightning==2.0.2
+dill
