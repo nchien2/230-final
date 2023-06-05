@@ -13,7 +13,10 @@ import io
 import skvideo.io
 import config
 import random
+import imageio
 import cv2
+import time
+import dill as pickle
 
 from collections import Counter
 from torchtext.vocab import vocab
@@ -73,8 +76,7 @@ class SoccerNetTextProcessor(object):
         return self.vocab(self.tokenizer(text))
 
     def detokenize(self, tokens):
-        return " ".join(self.vocab.lookup_tokens(tokens))
-
+        return " ".join(self.vocab.lookup_tokens(tokens))         
 
 class SNV3Dataset(Dataset):
   def __init__(self,
@@ -83,11 +85,11 @@ class SNV3Dataset(Dataset):
                resolution=(480,360),
                framerate=2,
                window_size=15,
-               batch_size=32,
+               num_clips=2,
                include_vid=False,
                vocab_path=None):
 
-    self.batch_size = batch_size
+    self.num_clips = num_clips
     self.framerate = framerate
     self.include_vid = include_vid
     # Initialize s3 resource
@@ -103,6 +105,7 @@ class SNV3Dataset(Dataset):
 
      # Get list of selected subset of games
     self.list_games = getListGames(split, task="frames")
+    self.window_size = window_size
     self.clip_len = window_size * framerate
 
     print("Reading the annotation files")
@@ -160,7 +163,7 @@ class SNV3Dataset(Dataset):
     label = json.loads(label_reference.get()['Body'].read().decode('utf-8'))
 #     print(len(label['annotations']))
 #     print(self.batch_size)
-    captions = random.sample(label['annotations'], self.batch_size)
+    captions = random.sample(label['annotations'], self.num_clips)
 #     print(len(captions))
     pad_len = max([len(x['anonymized']) for x in captions])
 
@@ -169,46 +172,21 @@ class SNV3Dataset(Dataset):
 
     embed_list = [self.ref_to_tensor(emb_ref1), self.ref_to_tensor(emb_ref2)]
     embed = torch.cat(embed_list)
-
+  
     if self.include_vid:
-      url1 = s3_client.generate_presigned_url('get_object',
-                                             Params= {'Bucket': 'soccernet-230', 'Key': 'videos/' + game + '1_224p.mkv'},
-                                             ExpiresIn=600)
-      url2 = s3_client.generate_presigned_url('get_object',
-                                             Params= {'Bucket': 'soccernet-230', 'Key': 'videos/' + game + '2_224p.mkv'},
-                                             ExpiresIn=600)
-
-      img_list = []
-      cap1 = cv2.VideoCapture(url1)
-      ret = True
-      while(ret):
-        ret, frame = cap.read()
-        img_list.append(frame)
-      cap2 = cv2.VideoCapture(url2)
-      ret = True
-      while(ret):
-        ret, frame = cap.read()
-        img_list.append(frame)
-      video = np.concatenate(img_list)
-      video = torch.tensor(video)
-
-      '''
-      vid_ref1 = self.s3.Object('soccernet-230', 'videos/' + game + '/1_224p.mkv')
-      vid_ref2 = self.s3.Object('soccernet-230', 'videos/' + game + '/2_224p.mkv')
-      with io.BytesIO(vid_ref1.get()["Body"].read()) as v_f:
-        v_f.seek(0)  # rewind the file
-        video = v_f.read()
-
-        idxs = range(0, 10)
-        video_list = [imageio.v3.imread(video, format_hint='.mkv', index=idx, plugin='pyav') for idx in idxs]
-        video = np.stack(video_list)
-        print(video.shape)
-      '''
-
+      video_list = []
+      for v_id in [1, 2]:
+        key = f"videos/{game}/{v_id}_224p.mkv"
+        url = self.client.generate_presigned_url('get_object',
+                                              Params= {'Bucket': self.bucket, 
+                                                        'Key': key,
+                                                        },
+                                              ExpiresIn=600)
+        video = imageio.get_reader(url, "ffmpeg")
+        video_list.append(video)
     out = {
         'embed': [],
         'caption': [],
-        'clip': []
     }
     for annotation in captions:
       time = annotation["gameTime"]
@@ -219,22 +197,36 @@ class SNV3Dataset(Dataset):
       #     continue
 
       minutes, seconds = time.split(' ')[-1].split(':')
-      minutes, seconds = int(minutes), int(seconds)
-      frame = self.framerate * ( seconds + 60 * minutes)
+      time_in_sec = 60 * int(minutes) + int(seconds)
+      frame = self.framerate * time_in_sec
 
       start = min(frame, embed.shape[0] - self.clip_len)
-      emb_clip = embed[start:start + self.clip_len,:]
+      emb_clip = embed[start:start + self.clip_len]
 
-      clip = None
       if self.include_vid:
-          clip = video[start:start + self.clip_len,:,:]
+        out['clip'] = []
+        if time_in_sec+self.window_size<video_list[0].get_meta_data()['duration']:
+          video = video_list[0]
+        else:
+          video = video_list[1]
+          # update frame
+          frame = int(self.framerate * (time_in_sec-video_list[0].get_meta_data()['duration']))
+          start = min(frame, embed.shape[0] - self.clip_len)
+        
+        actual_fps = video.get_meta_data()['fps']
+        sample_interval = round(actual_fps/self.framerate)
+        # find all frames that are within timestampe of start:start + self.clip_len
+        frame_indexes = [i for i in range(int(video.count_frames())) if i%sample_interval==0]
+        clip = [torch.tensor(video.get_data(frame_indexes[i])) for i in range(start, start+self.clip_len)] #[224, 398, 3]
+        clip = torch.stack(clip)
+        out['clip'].append(clip)
+
       caption_tokens = self.text_processor(annotation['anonymized'])
       caption_tokens = [config.PAD_TOKEN] * self.clip_len + caption_tokens
       caption_tokens += [config.PAD_TOKEN] * (pad_len - len(caption_tokens))
 
       out['embed'].append(emb_clip)
       out['caption'].append(torch.tensor(caption_tokens))
-      out['clip'].append(clip)
 
     out['embed'] = torch.stack(out['embed'])
     out['caption'] = torch.stack(out['caption'])
@@ -242,6 +234,7 @@ class SNV3Dataset(Dataset):
       out['clip'] = torch.stack(out['clip'])
 
     return out
+
 
   def getCorpus(self, split=["train"]):
     """
@@ -261,11 +254,46 @@ class SNV3Dataset(Dataset):
         caption (string): string obtained after replacing each token by its corresponding word
     """
     string = self.text_processor.detokenize(tokens)
-    return string.rstrip(f" {self.text_processor.vocab.lookup_token(config.EOS_TOKEN)}") if remove_EOS else string
+    return string.rstrip(f" {self.text_processor.vocab.lookup_token(config.EOS_TOKEN)}") if remove_EOS else strin
 
 
-def collate_fn(data):
-    return data
+def collate_fn(batch):
+  print(batch)
+  print(len(batch))
+  data = {}
+  for batch_video in batch:
+    for key, item in batch_video.items():
+      if key not in data:
+        data[key] = item.tolist() if key=='caption' else item
+      else:
+        if key!='caption':
+          print(key)
+          print(data[key])
+          print(item)
+          data[key] = torch.concat((data[key], item))
+        else:
+          data[key] += item.tolist()
+  
+  data['caption'] = collate_fn_padd(data['caption'])
+  return data
+
+
+def collate_fn_padd(batch):
+    '''
+    Padds batch of variable length
+
+    note: it converts things ToTensor manually here since the ToTensor transform
+    assume it takes in images rather than arbitrary tensors.
+    '''
+    ## padd
+    tokens = [([config.SOS_TOKEN] + t + [config.EOS_TOKEN]) if t else [config.PAD_TOKEN, config.PAD_TOKEN] for t in batch]
+    tokens = [torch.Tensor(t).long() for t in tokens]
+    ## get sequence lengths
+    lengths = torch.tensor([ len(t) for t in tokens])
+    tokens = torch.nn.utils.rnn.pad_sequence(tokens, batch_first=True)
+    ## compute mask
+    mask = (tokens != config.PAD_TOKEN)
+    return tokens
 
 
 if __name__ == "__main__":
@@ -276,12 +304,22 @@ if __name__ == "__main__":
     s3 = session.resource('s3')
     test_ds = SNV3Dataset(split='test',
                       bucket='soccernet-230',
-                      vocab_path='vocab_files/test_vocab.pyi')
-
-    test_dl = DataLoader(test_ds, collate_fn=collate_fn, batch_size=1)
-
+                      vocab_path='vocab_files/train_vocab.pyi',
+                      num_clips=2,
+                      include_vid=True)
+    test_dl = DataLoader(test_ds, collate_fn=collate_fn, batch_size=3)
+    start_time = time.time()
+    i = 0
     for example in test_dl:
       print('PRINTING EXAMPLE============')
-      # print(example)
-      print(example[0]['embed'].shape)
-      # print(example[0]['caption'].shape)
+      print(len(example))
+      #print(example[0])
+      print(example['embed'].shape)
+      print(example['caption'].shape)
+      print(example['clip'].shape)
+      print(example['caption'])
+      print("time for one batch: ", time.time()-start_time)
+      i += 1
+      if i>3:
+        break
+

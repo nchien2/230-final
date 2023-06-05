@@ -1,10 +1,13 @@
 boto3==1.26.137
 numpy==1.24.3
 Pillow==9.5.0
-Pillow==9.5.0
 scikit_video==1.1.11
 spacy==3.5.3
 torch==2.0.1
 torchtext==0.15.2
 torchvision==0.15.2
 tqdm==4.65.0
+transformer==4.29.2
+imageio==2.30.0
+imageio-ffmpeg==0.4.8
+pytorch_lightning==2.0.2
