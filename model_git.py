@@ -9,8 +9,8 @@ from torch.nn import CrossEntropyLoss
 
 from transformers.models.git.modeling_git import (
     GitPreTrainedModel,
-    GitEmbeddings, 
-    GitEncoder, 
+    GitEmbeddings,
+    GitEncoder,
     GitProjection,
     _expand_mask,
 )
@@ -22,20 +22,21 @@ from transformers.modeling_outputs import (
 
 
 class GitModel(GitPreTrainedModel):
-#class GitModel(nn.Module):
+    # class GitModel(nn.Module):
     def __init__(self, config):
         super().__init__(config)
         self.config = config
 
         self.embeddings = GitEmbeddings(config)
-        #self.image_encoder = GitVisionModel(config.vision_config)
+        # self.image_encoder = GitVisionModel(config.vision_config)
         self.encoder = GitEncoder(config)
 
         self.visual_projection = GitProjection(config)
 
         if config.num_image_with_embedding is not None:
             self.img_temperal_embedding = nn.ParameterList(
-                nn.Parameter(torch.zeros(1, 1, config.vision_config.hidden_size))
+                nn.Parameter(torch.zeros(
+                    1, 1, config.vision_config.hidden_size))
                 for _ in range(config.num_image_with_embedding)
             )
 
@@ -58,7 +59,8 @@ class GitModel(GitPreTrainedModel):
 
     def _generate_future_mask(self, size: int, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
         # Default mask is for forward direction. Flip for backward direction.
-        mask = torch.triu(torch.ones(size, size, device=device, dtype=dtype), diagonal=1)
+        mask = torch.triu(torch.ones(
+            size, size, device=device, dtype=dtype), diagonal=1)
         mask = mask.masked_fill(mask == 1, float("-inf"))
         return mask
 
@@ -67,7 +69,8 @@ class GitModel(GitPreTrainedModel):
         num_memory = memory.shape[1]
         device = tgt.device
         dtype = tgt.dtype
-        top_left = torch.zeros((num_memory, num_memory), device=device, dtype=dtype)
+        top_left = torch.zeros((num_memory, num_memory),
+                               device=device, dtype=dtype)
         top_right = torch.full(
             (num_memory, num_tgt + past_key_values_length),
             float("-inf"),
@@ -82,7 +85,8 @@ class GitModel(GitPreTrainedModel):
 
         if past_key_values_length > 0:
             tgt_mask = torch.zeros(
-                (tgt_mask.shape[0], tgt_mask.shape[0] + past_key_values_length),
+                (tgt_mask.shape[0], tgt_mask.shape[0] +
+                 past_key_values_length),
                 dtype=dtype,
                 device=tgt_mask.device,
             )
@@ -93,14 +97,18 @@ class GitModel(GitPreTrainedModel):
         full_attention_mask = torch.cat((left, right), dim=1)[None, :]
 
         if memory_key_padding_mask is None:
-            memory_key_padding_mask = torch.full((memory.shape[0], memory.shape[1]), fill_value=False, device=device)
+            memory_key_padding_mask = torch.full(
+                (memory.shape[0], memory.shape[1]), fill_value=False, device=device)
         # if it is False, it means valid. That is, it is not a padding
         if memory_key_padding_mask.dtype != torch.bool:
-            raise ValueError("Memory key padding mask must be a boolean tensor.")
-        zero_negative_infinity = torch.zeros_like(memory_key_padding_mask, dtype=tgt.dtype)
+            raise ValueError(
+                "Memory key padding mask must be a boolean tensor.")
+        zero_negative_infinity = torch.zeros_like(
+            memory_key_padding_mask, dtype=tgt.dtype)
         zero_negative_infinity[memory_key_padding_mask] = float("-inf")
         full_attention_mask = full_attention_mask.expand(
-            (memory_key_padding_mask.shape[0], num_memory + num_tgt, num_memory + past_key_values_length + num_tgt)
+            (memory_key_padding_mask.shape[0], num_memory +
+             num_tgt, num_memory + past_key_values_length + num_tgt)
         )
         full_attention_mask = full_attention_mask.clone()
         origin_left = full_attention_mask[:, :, :num_memory]
@@ -112,14 +120,14 @@ class GitModel(GitPreTrainedModel):
 
         return full_attention_mask
 
-    #@add_start_docstrings_to_model_forward(GIT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
-    #@replace_return_docstrings(output_type=BaseModelOutputWithPooling, config_class=_CONFIG_FOR_DOC)
+    # @add_start_docstrings_to_model_forward(GIT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
+    # @replace_return_docstrings(output_type=BaseModelOutputWithPooling, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
-        #pixel_values: Optional[torch.Tensor] = None,
+        # pixel_values: Optional[torch.Tensor] = None,
         visual_embeds: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
@@ -170,13 +178,15 @@ class GitModel(GitPreTrainedModel):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
+            raise ValueError(
+                "You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
             input_shape = input_ids.size()
         elif inputs_embeds is not None:
             input_shape = inputs_embeds.size()[:-1]
         else:
-            raise ValueError("You have to specify either input_ids or inputs_embeds")
+            raise ValueError(
+                "You have to specify either input_ids or inputs_embeds")
 
         seq_length = input_shape[1]
 
@@ -188,7 +198,8 @@ class GitModel(GitPreTrainedModel):
         # attention_probs has shape bsz x n_heads x N x N
         # input head_mask has shape [num_heads] or [num_hidden_layers x num_heads]
         # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
-        head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
+        head_mask = self.get_head_mask(
+            head_mask, self.config.num_hidden_layers)
 
         projected_visual_features = None
         # replace pixel values with visual_embeds as the following steps:
@@ -197,16 +208,16 @@ class GitModel(GitPreTrainedModel):
         #     visual_features_frame = visual_embeds[:, frame_idx, :]
         #     visual_features.append(visual_features_frame)
         # finally, concatenate all features along sequence dimension
-        #visual_features = torch.cat(visual_features, dim=1)
+        # visual_features = torch.cat(visual_features, dim=1)
         visual_features = visual_embeds
         projected_visual_features = self.visual_projection(visual_features)
-        
+
         # comment below steps that convert "pixel_values" to "visual_features"
         # if pixel_values is not None:
         #     if pixel_values.ndim == 4:
         #         # here we assume pixel_values is of shape (batch_size, num_channels, height, width)
         #         visual_features = self.image_encoder(pixel_values).last_hidden_state
- 
+
         #     elif pixel_values.ndim == 5:
         #         # here we assume pixel_values is of shape (batch_size, num_frames, num_channels, height, width)
         #         visual_features = []
@@ -243,11 +254,13 @@ class GitModel(GitPreTrainedModel):
         )
 
         # concatenate patch token and text token embeddings
-        hidden_states = torch.cat((projected_visual_features, embedding_output), dim=1)
+        hidden_states = torch.cat(
+            (projected_visual_features, embedding_output), dim=1)
 
         # By default, an additive causal mask is created
         # for masking the future (one direction).
-        tgt_mask = self._generate_future_mask(seq_length, embedding_output.dtype, embedding_output.device)
+        tgt_mask = self._generate_future_mask(
+            seq_length, embedding_output.dtype, embedding_output.device)
 
         # Create an attention mask of shape (batch_size, 1, tgt_seq_len, src_seq_len)
         combined_attention_mask = self.create_attention_mask(
@@ -264,9 +277,11 @@ class GitModel(GitPreTrainedModel):
                 embedding_output.device
             )
             if past_key_values_length > 0:
-                expanded_attn_mask = expanded_attn_mask[:, :, -past_key_values_length:, :]
+                expanded_attn_mask = expanded_attn_mask[:,
+                                                        :, -past_key_values_length:, :]
             else:
-                combined_attention_mask[:, :, -input_shape[1] :, -input_shape[1] :] += expanded_attn_mask
+                combined_attention_mask[:, :, -input_shape[1]
+                    :, -input_shape[1]:] += expanded_attn_mask
 
         encoder_outputs = self.encoder(
             hidden_states,
@@ -277,7 +292,7 @@ class GitModel(GitPreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            #pixel_values_present=pixel_values is not None,
+            # pixel_values_present=pixel_values is not None,
             pixel_values_present=visual_embeds is not None,
         )
         sequence_output = encoder_outputs[0]
@@ -291,9 +306,8 @@ class GitModel(GitPreTrainedModel):
             hidden_states=encoder_outputs.hidden_states,
             attentions=encoder_outputs.attentions,
         )
-        
-        
-        
+
+
 class GitForCausalLM(GitPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -310,14 +324,14 @@ class GitForCausalLM(GitPreTrainedModel):
     def set_output_embeddings(self, new_embeddings):
         self.output = new_embeddings
 
-    #@add_start_docstrings_to_model_forward(GIT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
-    #@replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
+    # @add_start_docstrings_to_model_forward(GIT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
+    # @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
-        #pixel_values: Optional[torch.Tensor] = None,
+        # pixel_values: Optional[torch.Tensor] = None,
         visual_embeds: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
@@ -422,7 +436,7 @@ class GitForCausalLM(GitPreTrainedModel):
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            #pixel_values=pixel_values,
+            # pixel_values=pixel_values,
             visual_embeds=visual_embeds,
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
@@ -443,7 +457,8 @@ class GitForCausalLM(GitPreTrainedModel):
             shifted_logits = logits[:, num_image_tokens:-1, :].contiguous()
             labels = labels[:, 1:].contiguous()
             loss_fct = CrossEntropyLoss()
-            loss = loss_fct(shifted_logits.view(-1, self.config.vocab_size), labels.view(-1))
+            loss = loss_fct(
+                shifted_logits.view(-1, self.config.vocab_size), labels.view(-1))
 
         if not return_dict:
             output = (logits,) + outputs[1:]
@@ -472,7 +487,7 @@ class GitForCausalLM(GitPreTrainedModel):
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            #"pixel_values": kwargs.get("pixel_values", None),
+            # "pixel_values": kwargs.get("pixel_values", None),
             "visual_embeds": kwargs.get("visual_embeds", None),
             "past_key_values": past_key_values,
             "use_cache": use_cache,
@@ -481,6 +496,6 @@ class GitForCausalLM(GitPreTrainedModel):
     def _reorder_cache(self, past_key_values, beam_idx):
         reordered_past = ()
         for layer_past in past_key_values:
-            reordered_past += (tuple(past_state.index_select(0, beam_idx) for past_state in layer_past),)
+            reordered_past += (tuple(past_state.index_select(0, beam_idx)
+                               for past_state in layer_past),)
         return reordered_past
-

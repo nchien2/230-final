@@ -8,8 +8,7 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 
 
-
-#from model_image import GitForCausalLM
+# from model_image import GitForCausalLM
 
 num_epochs = 1
 batch_size = 32
@@ -18,6 +17,7 @@ visual_embed_size = 8576
 sequence_length = 400
 embed_hidden_size = 768
 lr = 3e-5
+
 
 class plModel(pl.LightningModule):
     def __init__(self, vocab_size):
@@ -33,22 +33,22 @@ class plModel(pl.LightningModule):
         self.save_hyperparameters()
 
     def configure_optimizers(self):
-      return AdamW(self.parameters(), lr = lr)
+        return AdamW(self.parameters(), lr=lr)
 
     def forward(self, x):
-#         print('in forward')
-#         print(x)
+        #         print('in forward')
+        #         print(x)
         out = self.model(**x)
         return out
 
     def training_step(self, batch, batch_idx):
-#         position_ids = torch.tensor(range(0, batch[0]['labels'].shape[1] + 30), dtype=torch.long)
-        inputs = {#"visual_embeds": torch.normal(0, 1, size=(25, 3, 768)),
-                 "visual_embeds": None,
-                 "inputs_embeds": batch[0]['embed'].to(self.device),
-                 "labels": batch[0]['caption'].to(self.device),
-                 "position_ids": None#position_ids.to(self.device)
-                 }
+        #         position_ids = torch.tensor(range(0, batch[0]['labels'].shape[1] + 30), dtype=torch.long)
+        inputs = {  # "visual_embeds": torch.normal(0, 1, size=(25, 3, 768)),
+            "visual_embeds": None,
+            "inputs_embeds": batch[0]['embed'].to(self.device),
+            "labels": batch[0]['caption'].to(self.device),
+            "position_ids": None  # position_ids.to(self.device)
+        }
 #         print(batch[0]['embed'].shape)
 #         inputs = {k:v.to(self.device) for k, v in inputs.items()}
         out = self(inputs)
@@ -58,12 +58,12 @@ class plModel(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        inputs = {#"visual_embeds": torch.normal(0, 1, size=(25, 3, 768)),
-                 "visual_embeds": None,
-                 "inputs_embeds": batch[0]['embed'].to(self.device),
-                 "labels": batch[0]['caption'].to(self.device),
-                 "position_ids": None#position_ids.to(self.device)
-                 }
+        inputs = {  # "visual_embeds": torch.normal(0, 1, size=(25, 3, 768)),
+            "visual_embeds": None,
+            "inputs_embeds": batch[0]['embed'].to(self.device),
+            "labels": batch[0]['caption'].to(self.device),
+            "position_ids": None  # position_ids.to(self.device)
+        }
 #         print(batch[0]['embed'].shape)
 #         inputs = {k:v.to(self.device) for k, v in inputs.items()}
         out = self(inputs)
@@ -84,22 +84,25 @@ if __name__ == "__main__":
     #                        vocab_path='vocab_files/test_vocab.pyi')
 
     print('Making DataLoader')
-    train_dl = DataLoader(train_ds, batch_size=1, collate_fn=collate_fn, num_workers=8)
-    valid_dl = DataLoader(valid_ds, batch_size=1, collate_fn=collate_fn, num_workers=8)
+    train_dl = DataLoader(train_ds, batch_size=1,
+                          collate_fn=collate_fn, num_workers=8)
+    valid_dl = DataLoader(valid_ds, batch_size=1,
+                          collate_fn=collate_fn, num_workers=8)
     # test_dl = DataLoader(test_ds, batch_size=1, collate_fn=collate_fn)
 
     # optimizer = AdamW(model.parameters(), lr=lr)
 
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    device = torch.device(
+        "cuda") if torch.cuda.is_available() else torch.device("cpu")
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision('high')
 
     print('Making Trainer')
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(monitor='val_loss', 
-                                          dirpath='checkpoints/', 
-                                          filename='{epoch:02d}-{val_loss:2f}',
-                                          save_top_k=2)
-    
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(monitor='val_loss',
+                                                       dirpath='checkpoints/',
+                                                       filename='{epoch:02d}-{val_loss:2f}',
+                                                       save_top_k=2)
+
     trainer = pl.Trainer(
         # strategy=None,
         accelerator='gpu',
