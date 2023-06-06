@@ -18,3 +18,8 @@ Thumbs.db
 # Sensitive Info #
 ######################
 config.py
+
+
+# jupyter files #
+#####################
+.ipynb_checkpoints/
