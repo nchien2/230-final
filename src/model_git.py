@@ -35,7 +35,8 @@ class GitModel(GitPreTrainedModel):
 
         if config.num_image_with_embedding is not None:
             self.img_temperal_embedding = nn.ParameterList(
-                nn.Parameter(torch.zeros(1, 1, config.vision_config.hidden_size))
+                nn.Parameter(torch.zeros(
+                    1, 1, config.vision_config.hidden_size))
                 for _ in range(config.num_image_with_embedding)
             )
 
@@ -56,29 +57,20 @@ class GitModel(GitPreTrainedModel):
         for layer, heads in heads_to_prune.items():
             self.encoder.layer[layer].attention.prune_heads(heads)
 
-    def _generate_future_mask(
-        self, size: int, dtype: torch.dtype, device: torch.device
-    ) -> torch.Tensor:
+    def _generate_future_mask(self, size: int, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
         # Default mask is for forward direction. Flip for backward direction.
-        mask = torch.triu(
-            torch.ones(size, size, device=device, dtype=dtype), diagonal=1
-        )
+        mask = torch.triu(torch.ones(
+            size, size, device=device, dtype=dtype), diagonal=1)
         mask = mask.masked_fill(mask == 1, float("-inf"))
         return mask
 
-    def create_attention_mask(
-        self,
-        tgt,
-        memory,
-        tgt_mask,
-        past_key_values_length,
-        memory_key_padding_mask=None,
-    ):
+    def create_attention_mask(self, tgt, memory, tgt_mask, past_key_values_length, memory_key_padding_mask=None):
         num_tgt = tgt.shape[1]
         num_memory = memory.shape[1]
         device = tgt.device
         dtype = tgt.dtype
-        top_left = torch.zeros((num_memory, num_memory), device=device, dtype=dtype)
+        top_left = torch.zeros((num_memory, num_memory),
+                               device=device, dtype=dtype)
         top_right = torch.full(
             (num_memory, num_tgt + past_key_values_length),
             float("-inf"),
@@ -93,7 +85,8 @@ class GitModel(GitPreTrainedModel):
 
         if past_key_values_length > 0:
             tgt_mask = torch.zeros(
-                (tgt_mask.shape[0], tgt_mask.shape[0] + past_key_values_length),
+                (tgt_mask.shape[0], tgt_mask.shape[0] +
+                 past_key_values_length),
                 dtype=dtype,
                 device=tgt_mask.device,
             )
@@ -105,21 +98,17 @@ class GitModel(GitPreTrainedModel):
 
         if memory_key_padding_mask is None:
             memory_key_padding_mask = torch.full(
-                (memory.shape[0], memory.shape[1]), fill_value=False, device=device
-            )
+                (memory.shape[0], memory.shape[1]), fill_value=False, device=device)
         # if it is False, it means valid. That is, it is not a padding
         if memory_key_padding_mask.dtype != torch.bool:
-            raise ValueError("Memory key padding mask must be a boolean tensor.")
+            raise ValueError(
+                "Memory key padding mask must be a boolean tensor.")
         zero_negative_infinity = torch.zeros_like(
-            memory_key_padding_mask, dtype=tgt.dtype
-        )
+            memory_key_padding_mask, dtype=tgt.dtype)
         zero_negative_infinity[memory_key_padding_mask] = float("-inf")
         full_attention_mask = full_attention_mask.expand(
-            (
-                memory_key_padding_mask.shape[0],
-                num_memory + num_tgt,
-                num_memory + past_key_values_length + num_tgt,
-            )
+            (memory_key_padding_mask.shape[0], num_memory +
+             num_tgt, num_memory + past_key_values_length + num_tgt)
         )
         full_attention_mask = full_attention_mask.clone()
         origin_left = full_attention_mask[:, :, :num_memory]
@@ -181,45 +170,36 @@ class GitModel(GitPreTrainedModel):
         >>> outputs = model(**inputs)
         >>> last_hidden_state = outputs.last_hidden_state
         ```"""
-        output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError(
-                "You cannot specify both input_ids and inputs_embeds at the same time"
-            )
+                "You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
             input_shape = input_ids.size()
         elif inputs_embeds is not None:
             input_shape = inputs_embeds.size()[:-1]
         else:
-            raise ValueError("You have to specify either input_ids or inputs_embeds")
+            raise ValueError(
+                "You have to specify either input_ids or inputs_embeds")
 
         seq_length = input_shape[1]
 
         # past_key_values_length
-        past_key_values_length = (
-            past_key_values[0][0].shape[2] if past_key_values is not None else 0
-        )
+        past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0
 
         # Prepare head mask if needed
         # 1.0 in head_mask indicate we keep the head
         # attention_probs has shape bsz x n_heads x N x N
         # input head_mask has shape [num_heads] or [num_hidden_layers x num_heads]
         # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
-        head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
+        head_mask = self.get_head_mask(
+            head_mask, self.config.num_hidden_layers)
 
         projected_visual_features = None
         # replace pixel values with visual_embeds as the following steps:
@@ -274,13 +254,13 @@ class GitModel(GitPreTrainedModel):
         )
 
         # concatenate patch token and text token embeddings
-        hidden_states = torch.cat((projected_visual_features, embedding_output), dim=1)
+        hidden_states = torch.cat(
+            (projected_visual_features, embedding_output), dim=1)
 
         # By default, an additive causal mask is created
         # for masking the future (one direction).
         tgt_mask = self._generate_future_mask(
-            seq_length, embedding_output.dtype, embedding_output.device
-        )
+            seq_length, embedding_output.dtype, embedding_output.device)
 
         # Create an attention mask of shape (batch_size, 1, tgt_seq_len, src_seq_len)
         combined_attention_mask = self.create_attention_mask(
@@ -293,17 +273,15 @@ class GitModel(GitPreTrainedModel):
         if attention_mask is not None:
             # if the user provides an attention mask, we add it to the default one
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
-            expanded_attn_mask = _expand_mask(
-                attention_mask, embedding_output.dtype, tgt_len=input_shape[-1]
-            ).to(embedding_output.device)
+            expanded_attn_mask = _expand_mask(attention_mask, embedding_output.dtype, tgt_len=input_shape[-1]).to(
+                embedding_output.device
+            )
             if past_key_values_length > 0:
-                expanded_attn_mask = expanded_attn_mask[
-                    :, :, -past_key_values_length:, :
-                ]
+                expanded_attn_mask = expanded_attn_mask[:,
+                                                        :, -past_key_values_length:, :]
             else:
-                combined_attention_mask[
-                    :, :, -input_shape[1] :, -input_shape[1] :
-                ] += expanded_attn_mask
+                combined_attention_mask[:, :, -input_shape[1]
+                    :, -input_shape[1]:] += expanded_attn_mask
 
         encoder_outputs = self.encoder(
             hidden_states,
@@ -450,9 +428,7 @@ class GitForCausalLM(GitPreTrainedModel):
         Generated caption: ['a woman is sitting at a table and she is talking about the food she is holding.']
         ```
         """
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         if labels is not None:
             use_cache = False
 
@@ -477,15 +453,12 @@ class GitForCausalLM(GitPreTrainedModel):
         loss = None
         if labels is not None:
             # we are doing next-token prediction; shift prediction scores and input ids by one
-            num_image_tokens = self.git.encoder.layer[
-                0
-            ].attention.self.image_patch_tokens
+            num_image_tokens = self.git.encoder.layer[0].attention.self.image_patch_tokens
             shifted_logits = logits[:, num_image_tokens:-1, :].contiguous()
             labels = labels[:, 1:].contiguous()
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(
-                shifted_logits.view(-1, self.config.vocab_size), labels.view(-1)
-            )
+                shifted_logits.view(-1, self.config.vocab_size), labels.view(-1))
 
         if not return_dict:
             output = (logits,) + outputs[1:]
@@ -500,12 +473,7 @@ class GitForCausalLM(GitPreTrainedModel):
         )
 
     def prepare_inputs_for_generation(
-        self,
-        input_ids,
-        past_key_values=None,
-        attention_mask=None,
-        use_cache=None,
-        **kwargs
+        self, input_ids, past_key_values=None, attention_mask=None, use_cache=None, **kwargs
     ):
         # cut decoder_input_ids if past_key_values is used
         if past_key_values is not None:
@@ -528,9 +496,6 @@ class GitForCausalLM(GitPreTrainedModel):
     def _reorder_cache(self, past_key_values, beam_idx):
         reordered_past = ()
         for layer_past in past_key_values:
-            reordered_past += (
-                tuple(
-                    past_state.index_select(0, beam_idx) for past_state in layer_past
-                ),
-            )
+            reordered_past += (tuple(past_state.index_select(0, beam_idx)
+                               for past_state in layer_past),)
         return reordered_past
