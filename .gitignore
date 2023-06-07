@@ -23,3 +23,8 @@ config.py
 # jupyter files #
 #####################
 .ipynb_checkpoints/
+
+
+# large files #
+##################
+checkpoints/

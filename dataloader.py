@@ -87,11 +87,13 @@ class SNV3Dataset(Dataset):
                  window_size=15,
                  num_clips=2,
                  include_vid=False,
-                 vocab_path=None):
+                 vocab_path=None,
+                 local_video_path=None):
 
         self.num_clips = num_clips
         self.framerate = framerate
         self.include_vid = include_vid
+        self.local_video_path = local_video_path
         # Initialize s3 resource
         s3 = boto3.resource('s3')
         self.session = boto3.Session(
@@ -163,64 +165,79 @@ class SNV3Dataset(Dataset):
         label = json.loads(label_reference.get()['Body'].read().decode('utf-8'))
         captions = random.sample(label['annotations'], self.num_clips)
         pad_len = max([len(x['anonymized']) for x in captions])
-
-        emb_ref1 = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/1_baidu_soccer_embeddings.npy')
-        emb_ref2 = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/2_baidu_soccer_embeddings.npy')
-
-        embed_list = [self.ref_to_tensor(emb_ref1), self.ref_to_tensor(emb_ref2)]
-        embed = torch.cat(embed_list)
-
-        if self.include_vid:
-            video_list = []
-            for v_id in [1, 2]:
-                key = f"videos/{game}/{v_id}_224p.mkv"
-                url = self.client.generate_presigned_url('get_object',
-                                                      Params= {'Bucket': self.bucket, 
-                                                                'Key': key,
-                                                                },
-                                                      ExpiresIn=600)
-                video = imageio.get_reader(url, "ffmpeg")
-                video_list.append(video)
         out = {
-            'embed': [],
+            #'embed': [],
             'caption': [],
         }
-        for annotation in captions:
-            time = annotation["gameTime"]
-            event = annotation["label"]
-            half = int(time[0])
 
-            minutes, seconds = time.split(' ')[-1].split(':')
+#         emb_ref1 = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/1_baidu_soccer_embeddings.npy')
+#         emb_ref2 = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/2_baidu_soccer_embeddings.npy')
+
+#         embed_list = [self.ref_to_tensor(emb_ref1), self.ref_to_tensor(emb_ref2)]
+#         embed = torch.cat(embed_list)
+
+        if self.include_vid:
+            out['clip'] = []
+            video_list = []
+            for v_id in [1, 2]:
+                #print(self.local_video_path)
+                if self.local_video_path:
+                    #print("read videos: ", time.time())
+                    video = imageio.get_reader(f"{self.local_video_path}/{game}/{v_id}_224p.mkv", "ffmpeg")
+                    #print("read videos done ", time.time())
+                else:
+                    key = f"videos/{game}/{v_id}_224p.mkv"
+                    url = self.client.generate_presigned_url('get_object',
+                                                          Params= {'Bucket': self.bucket, 
+                                                                    'Key': key,
+                                                                    },
+                                                          ExpiresIn=600)
+                    video = imageio.get_reader(url, "ffmpeg")
+                video_list.append(video)
+        
+        for annotation in captions:
+            gameTime = annotation["gameTime"]
+            event = annotation["label"]
+            half = int(gameTime[0])
+
+            minutes, seconds = gameTime.split(' ')[-1].split(':')
             time_in_sec = 60 * int(minutes) + int(seconds)
             frame = self.framerate * time_in_sec
 
-            start = min(frame, embed.shape[0] - self.clip_len)
-            emb_clip = embed[start:start + self.clip_len]
+            start = min(frame, 1e8)
+            # emb_clip = embed[start:start + self.clip_len]
 
             if self.include_vid:
-                out['clip'] = []
                 if time_in_sec+self.window_size<video_list[0].get_meta_data()['duration']:
                     video = video_list[0]
                 else:
                     video = video_list[1]
                     # update frame
                     frame = int(self.framerate * (time_in_sec-video_list[0].get_meta_data()['duration']))
-                    start = min(frame, embed.shape[0] - self.clip_len)
+                    #start = min(frame, embed.shape[0] - self.clip_len)
+                    start = min(frame, 1e8)
 
                 actual_fps = video.get_meta_data()['fps']
                 sample_interval = round(actual_fps/self.framerate)
                 # find all frames that are within timestampe of start:start + self.clip_len
                 frame_indexes = [i for i in range(int(video.count_frames())) if i%sample_interval==0]
-                clip = [torch.tensor(video.get_data(frame_indexes[i])) for i in range(start, start+self.clip_len)] #[224, 398, 3]
+                start = min(frame, len(frame_indexes)-self.clip_len)
+                clip = []
+                for i in range(start, start+self.clip_len):
+                    per_frame = cv2.resize(video.get_data(frame_indexes[i]), (224, 224))
+                    clip.append(torch.tensor(per_frame))
                 clip = torch.stack(clip)
+                #print(clip.shape)
                 out['clip'].append(clip)
+                #print(torch.stack(out['clip']).shape)
+                #print(out['clip'])
 
             caption_tokens = self.text_processor(annotation['anonymized'])
 
-            out['embed'].append(emb_clip)
+            # out['embed'].append(emb_clip)
             out['caption'].append(caption_tokens)
 
-        out['embed'] = torch.stack(out['embed'])
+        # out['embed'] = torch.stack(out['embed'])
         if self.include_vid:
             out['clip'] = torch.stack(out['clip'])
 
@@ -293,18 +310,19 @@ if __name__ == "__main__":
                       bucket='soccernet-230',
                       vocab_path='vocab_files/train_vocab.pyi',
                       num_clips=2,
-                      include_vid=False)
-    test_dl = DataLoader(test_ds, collate_fn=collate_fn, batch_size=3, num_workers=80)
+                      include_vid=True,
+                         local_video_path="/raid/videos")
+    test_dl = DataLoader(test_ds, collate_fn=collate_fn, batch_size=1, num_workers=1)
     start_time = time.time()
     i = 0
     for example in test_dl:
         print('PRINTING EXAMPLE============')
         print(len(example))
         #print(example[0])
-        print(example['embed'].shape)
+        #print(example['embed'].shape)
         print(example['caption'].shape)
-        #print(example['clip'].shape)
-        print(example['caption'])
+        print(example['clip'].shape)
+        #print(example['caption'])
         print("time for one batch: ", time.time()-start_time)
         break
 
