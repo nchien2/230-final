@@ -27,4 +27,4 @@ config.py
 
 # large files #
 ##################
-checkpoints/
+#checkpoints/
