@@ -186,7 +186,7 @@ class GitModel(GitPreTrainedModel):
         elif input_ids is not None:
             input_shape = input_ids.size()
         elif inputs_embeds is not None:
-            input_shape = inputs_embeds.size()[:-1]
+            input_shape = inputs_embeds.size()#[:-1]
         else:
             raise ValueError(
                 "You have to specify either input_ids or inputs_embeds")
@@ -216,7 +216,7 @@ class GitModel(GitPreTrainedModel):
             visual_features = visual_embeds
             projected_visual_features = self.visual_projection(visual_features)
         if inputs_embeds is not None:
-            inputs_embeds = self.visual_projection(inputs_embeds)
+            inputs_embeds = self.visual_projection(inputs_embeds.to(self.device))
         if labels is not None:
             label_embeds = self.word_embeddings(labels[:, 30:])
         # print('inputs_embeds: ', inputs_embeds.shape)
@@ -451,7 +451,6 @@ class GitForCausalLM(GitPreTrainedModel):
         if labels is not None:
             use_cache = False
 
-        full_inputs = labels.clone()
 #         full_in
 
         outputs = self.git(
@@ -509,7 +508,7 @@ class GitForCausalLM(GitPreTrainedModel):
         )
 
     def prepare_inputs_for_generation(
-        self, input_ids, past_key_values=None, attention_mask=None, use_cache=None, **kwargs
+        self, input_ids, inputs_embeds=None, past_key_values=None, attention_mask=None, use_cache=None, **kwargs
     ):
         # cut decoder_input_ids if past_key_values is used
         if past_key_values is not None:
@@ -520,14 +519,22 @@ class GitForCausalLM(GitPreTrainedModel):
         if attention_mask is None:
             attention_mask = input_ids.new_ones(input_shape)
 
-        return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            # "pixel_values": kwargs.get("pixel_values", None),
-            "visual_embeds": kwargs.get("visual_embeds", None),
-            "past_key_values": past_key_values,
-            "use_cache": use_cache,
-        }
+        if inputs_embeds is not None and past_key_values is None:
+            model_inputs = {'inputs_embeds': inputs_embeds}
+        else:
+            model_inputs = {'input_ids: input_ids'}
+        model_inputs.update(
+            {
+                'past_key_values': past_key_values,
+                'use_cache': use_cache,
+                "visual_embeds": kwargs.get("visual_embeds", None),
+                # 'position_ids': position_ids,
+                'attention_mask': attention_mask,
+                # 'token_type_ids': token_type_ids,
+            }
+        )
+
+        return model_inputs
 
     def _reorder_cache(self, past_key_values, beam_idx):
         reordered_past = ()

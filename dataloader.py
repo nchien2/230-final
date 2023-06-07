@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import torchvision
 from torch.utils.data import Dataset, DataLoader
-from PIL import Image
 from tqdm import tqdm
 import os
 import json
@@ -88,12 +87,14 @@ class SNV3Dataset(Dataset):
                  num_clips=2,
                  include_vid=False,
                  vocab_path=None,
-                 local_video_path=None):
+                 local_video_path=None,
+                 no_sample=False):
 
         self.num_clips = num_clips
         self.framerate = framerate
         self.include_vid = include_vid
         self.local_video_path = local_video_path
+        self.no_sample = no_sample
         # Initialize s3 resource
         s3 = boto3.resource('s3')
         self.session = boto3.Session(
@@ -163,7 +164,10 @@ class SNV3Dataset(Dataset):
         game = self.list_games[index]
         label_reference = self.s3.Object('soccernet-230', 'caption-2023/' + game + '/Labels-caption.json')
         label = json.loads(label_reference.get()['Body'].read().decode('utf-8'))
-        captions = random.sample(label['annotations'], self.num_clips)
+        if self.no_sample:
+            captions = label['annotations'][:self.num_clips]
+        else:
+            captions = random.sample(label['annotations'], self.num_clips)
         pad_len = max([len(x['anonymized']) for x in captions])
         out = {
             #'embed': [],
